@@ -123,9 +123,15 @@ class ProfileSearchView(generics.ListAPIView):
     ]
 
     def get_queryset(self):
-        return Profile.objects.filter(
-            user__is_profile_public=True
-        ).select_related("user")
+        # `name`, then `user__alumni_id` as tiebreaker. `name` is the
+        # field users actually see, so alphabetical reads naturally;
+        # `alumni_id` is unique and stable, so identical or empty names
+        # don't drift between paginated requests.
+        return (
+            Profile.objects.filter(user__is_profile_public=True)
+            .select_related("user")
+            .order_by("name", "user__alumni_id")
+        )
 
 
 class ProfileDetailView(generics.RetrieveAPIView):
