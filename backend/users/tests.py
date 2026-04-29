@@ -1,7 +1,9 @@
 import pyotp
+from django.core.cache import cache
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 User = get_user_model()
 
@@ -201,3 +203,102 @@ class PasswordValidatorTests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class AuthRateLimitTests(TestCase):
+    """Regression tests that the auth endpoints reject excess requests
+    with HTTP 429. Without these throttles the endpoints would be open
+    to brute-force password guessing, registration spam, and
+    password-reset email flooding.
+
+    `THROTTLE_RATES` is patched in-place on `SimpleRateThrottle` because
+    DRF resolves it at class-definition time, so `override_settings`
+    alone doesn't reach the throttle classes that are already imported.
+    """
+
+    TEST_RATES = {
+        "anon": "100/hour",
+        "user": "1000/hour",
+        "login": "3/min",
+        "register": "2/hour",
+        "password_reset": "2/hour",
+    }
+
+    def setUp(self):
+        self.client = APIClient()
+        self._original_rates = dict(SimpleRateThrottle.THROTTLE_RATES)
+        SimpleRateThrottle.THROTTLE_RATES.clear()
+        SimpleRateThrottle.THROTTLE_RATES.update(self.TEST_RATES)
+        # Throttle state lives in Django's cache; clear it so each test
+        # starts with an empty bucket regardless of run order.
+        cache.clear()
+
+    def tearDown(self):
+        SimpleRateThrottle.THROTTLE_RATES.clear()
+        SimpleRateThrottle.THROTTLE_RATES.update(self._original_rates)
+        cache.clear()
+
+    def test_login_throttled_after_burst(self):
+        # 3/min: the 4th attempt within the window must be rejected
+        # even though the credentials are obviously wrong.
+        for _ in range(3):
+            response = self.client.post(
+                "/api/token/",
+                {"username": "nobody", "password": "wrong"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 401)
+
+        response = self.client.post(
+            "/api/token/",
+            {"username": "nobody", "password": "wrong"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 429)
+
+    def test_register_throttled_after_burst(self):
+        # 2/hour: the 3rd registration attempt must be rejected.
+        for i in range(2):
+            response = self.client.post(
+                "/api/auth/register/",
+                {
+                    "username": f"throttleuser{i}",
+                    "email": f"throttle{i}@test.com",
+                    "password": "strong-pass-7261",
+                    "password_confirm": "strong-pass-7261",
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+        response = self.client.post(
+            "/api/auth/register/",
+            {
+                "username": "throttleuser3",
+                "email": "throttle3@test.com",
+                "password": "strong-pass-7261",
+                "password_confirm": "strong-pass-7261",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 429)
+
+    def test_password_reset_throttled_after_burst(self):
+        # 2/hour: the 3rd reset request must be rejected. Each request
+        # would otherwise trigger a real email send, so this is the
+        # endpoint where the throttle matters most.
+        for _ in range(2):
+            response = self.client.post(
+                "/api/auth/password-reset/",
+                {"email": "nobody@test.com"},
+                format="json",
+            )
+            # 200 even for unknown emails (anti-enumeration).
+            self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            "/api/auth/password-reset/",
+            {"email": "nobody@test.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 429)

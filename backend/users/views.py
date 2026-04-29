@@ -42,6 +42,7 @@ class RegisterView(generics.CreateAPIView):
 
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+    throttle_scope = "register"
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -102,6 +103,7 @@ class TwoFactorLoginView(APIView):
     call /api/token/2fa-verify/ with the TOTP code.
     """
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     def post(self, request):
         serializer = TwoFactorLoginSerializer(data=request.data)
@@ -133,6 +135,7 @@ class TwoFactorLoginView(APIView):
 class TwoFactorVerifyView(APIView):
     """Verify a TOTP code and return JWT tokens."""
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     def post(self, request):
         serializer = TwoFactorVerifySerializer(data=request.data)
@@ -268,6 +271,7 @@ class TOTPDisableView(APIView):
 class PasswordResetRequestView(APIView):
     """Send a 6-digit password reset code to the user's email."""
     permission_classes = [AllowAny]
+    throttle_scope = "password_reset"
 
     def post(self, request):
         serializer = PasswordResetRequestSerializer(data=request.data)
@@ -304,6 +308,7 @@ class PasswordResetRequestView(APIView):
 class PasswordResetConfirmView(APIView):
     """Verify the reset code and set a new password."""
     permission_classes = [AllowAny]
+    throttle_scope = "password_reset"
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)

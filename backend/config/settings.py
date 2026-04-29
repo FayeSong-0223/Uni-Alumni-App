@@ -179,10 +179,17 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_CLASSES': (
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
     ),
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
+        # Scoped throttles for unauthenticated auth endpoints. These
+        # protect against brute-force password guessing, registration
+        # spam, and password-reset email flooding. Counted per client IP.
+        'login': '10/min',
+        'register': '5/hour',
+        'password_reset': '5/hour',
     },
 }
 
