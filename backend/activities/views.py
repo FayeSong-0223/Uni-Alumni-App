@@ -723,7 +723,21 @@ class ActivityViewSet(viewsets.ModelViewSet):
     def bookings(self, request, pk=None):
         activity = self.get_object()
         bookings = activity.bookings.filter(status="confirmed")
-        return Response(ActivityBookingSerializer(bookings, many=True).data)
+
+        # Only staff or the activity's organizer can see the full booking
+        # list (names, emails, notes). For everyone else, expose just the
+        # confirmed-participant count plus the requester's own booking
+        # status — enough to render the UI without leaking other users' PII.
+        if request.user.is_staff or activity.organizer_id == request.user.id:
+            return Response(ActivityBookingSerializer(bookings, many=True).data)
+
+        my_booking = bookings.filter(user=request.user).first()
+        return Response({
+            "participant_count": bookings.count(),
+            "my_booking": (
+                ActivityBookingSerializer(my_booking).data if my_booking else None
+            ),
+        })
 
     @action(detail=True, methods=["delete"], url_path="cancel_booking",
             permission_classes=[IsAuthenticated])

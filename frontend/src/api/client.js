@@ -2,10 +2,30 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
+// Resolve the backend base URL from Expo public env vars.
+// Set these in `.env` (or your shell) before running `expo start`:
+//   EXPO_PUBLIC_API_URL              — universal override
+//   EXPO_PUBLIC_API_URL_WEB          — web-only override
+//   EXPO_PUBLIC_API_URL_ANDROID      — Android-only override (10.0.2.2 for emulator)
+//   EXPO_PUBLIC_API_URL_IOS          — iOS-only override
+// Falls back to localhost so a fresh checkout works without configuration.
+const DEFAULT_API_URL = 'http://localhost:8000/api';
+
 const getBaseURL = () => {
-  if (Platform.OS === 'web') return 'http://172.20.10.10:8000/api';
-  if (Platform.OS === 'android') return 'http://172.20.10.10:8000/api';
-  return 'http://172.20.10.10:8000/api';
+  const universal = process.env.EXPO_PUBLIC_API_URL;
+  if (Platform.OS === 'web') {
+    return process.env.EXPO_PUBLIC_API_URL_WEB || universal || DEFAULT_API_URL;
+  }
+  if (Platform.OS === 'android') {
+    // Android emulator can't reach the host's localhost — use 10.0.2.2 unless
+    // an explicit override is provided.
+    return (
+      process.env.EXPO_PUBLIC_API_URL_ANDROID ||
+      universal ||
+      'http://10.0.2.2:8000/api'
+    );
+  }
+  return process.env.EXPO_PUBLIC_API_URL_IOS || universal || DEFAULT_API_URL;
 };
 
 const api = axios.create({

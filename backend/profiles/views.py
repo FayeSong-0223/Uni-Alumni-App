@@ -47,6 +47,7 @@ def _word_q(field, term):
     # re.escape guards against regex metacharacters in user input.
     return Q(**{f"{field}__iregex": r"\b" + re.escape(term)})
 
+from connections.models import Connection
 from profiles.filters import ProfileFilter
 from profiles.models import Company, Profile, ProfessionalInterestOption
 from profiles.serializers import (
@@ -54,6 +55,7 @@ from profiles.serializers import (
     ProfessionalInterestOptionSerializer,
     ProfileListSerializer,
     ProfileSerializer,
+    PublicProfileSerializer,
 )
 
 
@@ -129,13 +131,25 @@ class ProfileSearchView(generics.ListAPIView):
 class ProfileDetailView(generics.RetrieveAPIView):
     """View another user's profile, respecting their privacy settings."""
 
-    serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = "user__alumni_id"
     lookup_url_kwarg = "alumni_id"
 
     def get_queryset(self):
         return Profile.objects.select_related("user")
+
+    def get_serializer_class(self):
+        # Owner and connected users see the full profile (including email);
+        # everyone else gets the email-stripped public view.
+        instance = getattr(self, "_cached_instance", None)
+        if instance is None:
+            return PublicProfileSerializer
+        viewer = self.request.user
+        if instance.user_id == viewer.id:
+            return ProfileSerializer
+        if Connection.are_connected(viewer, instance.user):
+            return ProfileSerializer
+        return PublicProfileSerializer
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -144,6 +158,9 @@ class ProfileDetailView(generics.RetrieveAPIView):
                 {"detail": "This profile is private."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Cache so get_serializer_class can pick the right serializer
+        # without re-running the queryset lookup.
+        self._cached_instance = instance
         return super().retrieve(request, *args, **kwargs)
 
 

@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from connections.models import Connection
 from profiles.models import Profile
 
 User = get_user_model()
@@ -54,3 +55,44 @@ class ProfileTests(TestCase):
 
         response = self.client.get(f"/api/profiles/{other.alumni_id}/")
         self.assertEqual(response.status_code, 403)
+
+
+class PublicProfileEmailVisibilityTests(TestCase):
+    """Regression tests for the email-leak fix on /api/profiles/<alumni_id>/.
+
+    The owner and connected users must still see `email`. Anyone else
+    viewing a public profile must NOT see it.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="testpass123"
+        )
+        self.viewer = User.objects.create_user(
+            username="viewer", email="viewer@test.com", password="testpass123"
+        )
+        self.connected = User.objects.create_user(
+            username="connected", email="connected@test.com", password="testpass123"
+        )
+        Connection.create_connection(self.owner, self.connected)
+
+    def test_non_connected_viewer_does_not_see_email(self):
+        self.client.force_authenticate(user=self.viewer)
+        response = self.client.get(f"/api/profiles/{self.owner.alumni_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("email", response.data)
+        # Defensive: also make sure it's not hiding inside another field.
+        self.assertNotIn("owner@test.com", str(response.data))
+
+    def test_owner_sees_their_own_email(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(f"/api/profiles/{self.owner.alumni_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["email"], "owner@test.com")
+
+    def test_connected_user_sees_email(self):
+        self.client.force_authenticate(user=self.connected)
+        response = self.client.get(f"/api/profiles/{self.owner.alumni_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["email"], "owner@test.com")

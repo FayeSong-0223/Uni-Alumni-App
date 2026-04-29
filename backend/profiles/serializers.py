@@ -75,6 +75,21 @@ class ProfileSerializer(serializers.ModelSerializer):
         return instance
 
 
+class PublicProfileSerializer(ProfileSerializer):
+    """Profile view for users who are NOT the profile owner.
+
+    Drops `email` so the address can't be harvested by simply browsing
+    other people's profile pages. The owner sees the full ProfileSerializer
+    on /me/. Connected users may also be granted email access by the view.
+    """
+
+    class Meta(ProfileSerializer.Meta):
+        fields = [f for f in ProfileSerializer.Meta.fields if f != "email"]
+        read_only_fields = [
+            f for f in ProfileSerializer.Meta.read_only_fields if f != "email"
+        ]
+
+
 class ProfileListSerializer(serializers.ModelSerializer):
     alumni_id = serializers.CharField(source="user.alumni_id", read_only=True)
     # Populated by recommendation/search views; absent elsewhere.

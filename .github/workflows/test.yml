@@ -1,0 +1,56 @@
+name: Backend tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Django check + test + coverage
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install dependencies (without mysqlclient)
+        # mysqlclient needs system pkg-config; CI uses SQLite, so skip it.
+        run: |
+          python -m pip install --upgrade pip
+          grep -v '^mysqlclient' requirements.txt > /tmp/req.txt
+          pip install -r /tmp/req.txt
+          pip install -r requirements-dev.txt
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Migration drift check
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run tests with coverage
+        run: |
+          coverage run --rcfile=.coveragerc manage.py test --verbosity=2
+          coverage report --rcfile=.coveragerc
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: backend/htmlcov
+          if-no-files-found: ignore

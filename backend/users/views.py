@@ -6,6 +6,8 @@ import string
 import pyotp
 import qrcode
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.core import signing
 from django.conf import settings
@@ -171,14 +173,20 @@ class TwoFactorVerifyView(APIView):
 # ── TOTP Setup / Enable / Disable ────────────────────────────────────
 
 class TOTPSetupView(APIView):
-    """Generate a new TOTP secret and QR code for the authenticated user."""
+    """Generate a new TOTP secret and QR code for the authenticated user.
+
+    The new secret is written to `pending_totp_secret`; the active
+    `totp_secret` is left untouched so a user with 2FA already enabled
+    can abandon setup without losing access to their existing
+    authenticator app.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
         secret = pyotp.random_base32()
-        user.totp_secret = secret
-        user.save(update_fields=["totp_secret"])
+        user.pending_totp_secret = secret
+        user.save(update_fields=["pending_totp_secret"])
 
         totp = pyotp.TOTP(secret)
         otpauth_uri = totp.provisioning_uri(
@@ -200,7 +208,12 @@ class TOTPSetupView(APIView):
 
 
 class TOTPEnableView(APIView):
-    """Verify a TOTP code to enable 2FA."""
+    """Verify a TOTP code to enable 2FA.
+
+    Verifies against `pending_totp_secret` and only promotes it to the
+    active `totp_secret` after a successful code, so a half-finished setup
+    can never lock a user out of their existing 2FA.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -208,21 +221,23 @@ class TOTPEnableView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = request.user
-        if not user.totp_secret:
+        if not user.pending_totp_secret:
             return Response(
                 {"detail": "Run 2FA setup first."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        totp = pyotp.TOTP(user.totp_secret)
+        totp = pyotp.TOTP(user.pending_totp_secret)
         if not totp.verify(serializer.validated_data["totp_code"], valid_window=1):
             return Response(
                 {"detail": "Invalid code. Please try again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        user.totp_secret = user.pending_totp_secret
+        user.pending_totp_secret = ""
         user.is_2fa_enabled = True
-        user.save(update_fields=["is_2fa_enabled"])
+        user.save(update_fields=["totp_secret", "pending_totp_secret", "is_2fa_enabled"])
         return Response({"detail": "Two-factor authentication enabled."})
 
 
@@ -243,7 +258,8 @@ class TOTPDisableView(APIView):
 
         user.is_2fa_enabled = False
         user.totp_secret = ""
-        user.save(update_fields=["is_2fa_enabled", "totp_secret"])
+        user.pending_totp_secret = ""
+        user.save(update_fields=["is_2fa_enabled", "totp_secret", "pending_totp_secret"])
         return Response({"detail": "Two-factor authentication disabled."})
 
 
@@ -319,6 +335,18 @@ class PasswordResetConfirmView(APIView):
                     {"detail": "Reset code has expired. Please request a new one."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+        # Re-run validators against the resolved user so the
+        # UserAttributeSimilarityValidator can catch passwords that look
+        # like the username/email. (The serializer-level check ran without
+        # a user.)
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"new_password": list(exc.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         user.set_password(new_password)
         user.password_reset_code = ""

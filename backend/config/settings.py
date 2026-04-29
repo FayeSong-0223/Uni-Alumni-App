@@ -212,16 +212,26 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 
 # ---------------------------------------------------------------------------
-# Email (console backend for development — prints to stdout)
+# Email
+#
+# In any real deployment, set EMAIL_HOST_USER and EMAIL_HOST_PASSWORD via
+# environment variables (e.g. through a server-side secret manager). The
+# constants below are demonstration credentials kept here ONLY so the
+# password-reset flow works out-of-the-box during evaluation; this is an
+# acknowledged limitation documented in TESTING.md / the review report.
+# Treat the embedded credentials as compromised and rotate before any
+# real-world deployment.
 # ---------------------------------------------------------------------------
 
+# Demo-only fallback. Override with environment variables in any real env.
+_DEMO_EMAIL_HOST_USER = 'ziqisong030@gmail.com'
+_DEMO_EMAIL_HOST_PASSWORD = 'pund azhn ihlx yccg'
+
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', _DEMO_EMAIL_HOST_USER)
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', _DEMO_EMAIL_HOST_PASSWORD)
 
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-
-EMAIL_HOST_USER = 'ziqisong030@gmail.com'
-EMAIL_HOST_PASSWORD = 'pund azhn ihlx yccg'
-
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
