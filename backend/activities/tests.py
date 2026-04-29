@@ -112,3 +112,136 @@ class BookingVisibilityTests(TestCase):
         body = str(response.data)
         self.assertNotIn("other@test.com", body)
         self.assertNotIn("peanuts", body)
+
+
+class ActivityWritePermissionTests(TestCase):
+    """Permission boundary for editing and deleting activities.
+
+    Activities are admin-authored content (per `IsAdminOrReadOnly`):
+    only staff users can PATCH/PUT/DELETE an activity. This is stricter
+    than an organizer-only policy — even if a non-staff user happens to
+    be set as the activity's `organizer`, they still cannot mutate it.
+    These tests lock that boundary in so it can't silently regress to a
+    looser policy (e.g. "organizer can edit their own").
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            username="staffuser", email="staff@test.com", password="testpass123"
+        )
+        self.staff.is_staff = True
+        self.staff.save()
+        self.other_staff = User.objects.create_user(
+            username="otherstaff", email="ostaff@test.com", password="testpass123"
+        )
+        self.other_staff.is_staff = True
+        self.other_staff.save()
+        self.alumni = User.objects.create_user(
+            username="alumni", email="alum@test.com", password="testpass123"
+        )
+
+        now = timezone.now()
+        # Created by `staff`, who is therefore the organizer.
+        self.activity = Activity.objects.create(
+            title="Original Title",
+            description="Original description.",
+            start_time=now + timedelta(days=2),
+            end_time=now + timedelta(days=2, hours=2),
+            organizer=self.staff,
+        )
+        # A second activity whose `organizer` is a non-staff alumni user.
+        # This is an unusual state (alumni can't normally create activities
+        # via the API), but the field allows it at the model level — and
+        # the access check must not weaken just because the requester
+        # matches the organizer field.
+        self.alumni_organized = Activity.objects.create(
+            title="Alumni-Organized",
+            description="Should still be staff-only to edit.",
+            start_time=now + timedelta(days=3),
+            end_time=now + timedelta(days=3, hours=2),
+            organizer=self.alumni,
+        )
+
+    def _detail_url(self, activity):
+        return f"/api/activities/{activity.id}/"
+
+    def test_anonymous_cannot_edit_activity(self):
+        response = self.client.patch(
+            self._detail_url(self.activity),
+            {"title": "Hacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 401)
+        self.activity.refresh_from_db()
+        self.assertEqual(self.activity.title, "Original Title")
+
+    def test_anonymous_cannot_delete_activity(self):
+        response = self.client.delete(self._detail_url(self.activity))
+        self.assertEqual(response.status_code, 401)
+        self.assertTrue(
+            Activity.objects.filter(pk=self.activity.pk).exists()
+        )
+
+    def test_non_staff_user_cannot_edit_activity(self):
+        self.client.force_authenticate(user=self.alumni)
+        response = self.client.patch(
+            self._detail_url(self.activity),
+            {"title": "Hacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.activity.refresh_from_db()
+        self.assertEqual(self.activity.title, "Original Title")
+
+    def test_non_staff_user_cannot_delete_activity(self):
+        self.client.force_authenticate(user=self.alumni)
+        response = self.client.delete(self._detail_url(self.activity))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(
+            Activity.objects.filter(pk=self.activity.pk).exists()
+        )
+
+    def test_non_staff_organizer_cannot_edit_their_own_activity(self):
+        # Even though `self.alumni` is the organizer of `alumni_organized`,
+        # the IsAdminOrReadOnly check must reject the write because the
+        # user isn't staff. This is the critical regression: do not weaken
+        # the policy to "organizer can edit their own".
+        self.client.force_authenticate(user=self.alumni)
+        response = self.client.patch(
+            self._detail_url(self.alumni_organized),
+            {"title": "Self-Edit Attempt"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.alumni_organized.refresh_from_db()
+        self.assertEqual(self.alumni_organized.title, "Alumni-Organized")
+
+    def test_non_staff_organizer_cannot_delete_their_own_activity(self):
+        self.client.force_authenticate(user=self.alumni)
+        response = self.client.delete(self._detail_url(self.alumni_organized))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(
+            Activity.objects.filter(pk=self.alumni_organized.pk).exists()
+        )
+
+    def test_staff_can_edit_any_activity(self):
+        # Crucially, `other_staff` is NOT the organizer but is still allowed
+        # to edit. The policy is staff-wide, not organizer-scoped.
+        self.client.force_authenticate(user=self.other_staff)
+        response = self.client.patch(
+            self._detail_url(self.activity),
+            {"title": "Updated Title"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.activity.refresh_from_db()
+        self.assertEqual(self.activity.title, "Updated Title")
+
+    def test_staff_can_delete_any_activity(self):
+        self.client.force_authenticate(user=self.other_staff)
+        response = self.client.delete(self._detail_url(self.activity))
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(
+            Activity.objects.alive().filter(pk=self.activity.pk).exists()
+        )

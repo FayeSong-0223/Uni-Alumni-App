@@ -35,7 +35,7 @@ report rather than this file.
 
 ## 2. Test Inventory
 
-The backend test suite contains **38 automated tests** across five Django
+The backend test suite contains **52 automated tests** across five Django
 apps. Each app's tests are located in `backend/<app>/tests.py`.
 
 ### 2.1 `users` (15 tests)
@@ -59,14 +59,16 @@ Public alumni directory, profile privacy, search.
 | `ProfileTests`                        | 5     | Profile auto-creation, retrieval, update, search, private-profile gate. |
 | `PublicProfileEmailVisibilityTests`   | 3     | Regression: email leaked only to owner + connected users, not to public. |
 
-### 2.3 `activities` (4 tests)
+### 2.3 `activities` (12 tests)
 
-Activity bookings — the surface most likely to leak personally
-identifiable information (PII).
+Activity bookings (the surface most likely to leak personally
+identifiable information) and the admin-only write boundary on
+activities themselves.
 
-| Test class                  | Tests | Purpose                                                                                |
-| --------------------------- | ----- | -------------------------------------------------------------------------------------- |
-| `BookingVisibilityTests`    | 4     | Regression: only staff/organizer see the full booking list with names, emails, notes. |
+| Test class                       | Tests | Purpose                                                                                |
+| -------------------------------- | ----- | -------------------------------------------------------------------------------------- |
+| `BookingVisibilityTests`         | 4     | Regression: only staff/organizer see the full booking list with names, emails, notes. |
+| `ActivityWritePermissionTests`   | 8     | Boundary: only staff can edit/delete activities; non-staff users — including a non-staff `organizer` — are rejected; anonymous requests are rejected. |
 
 ### 2.4 `connections` (6 tests)
 
@@ -76,9 +78,14 @@ Connection request / accept / list flow.
 | -------------------- | ----- | ---------------------------------------------------------------------- |
 | `ConnectionTests`    | 6     | Send / self-block / allow_contact gate / accept / list / received.    |
 
-### 2.5 `messaging` (5 tests)
+### 2.5 `messaging` (11 tests)
 
-In-app messaging (existing tests, untouched in this round of work).
+In-app messaging — happy path plus read-side permission boundary.
+
+| Test class                         | Tests | Purpose                                                                |
+| ---------------------------------- | ----- | ---------------------------------------------------------------------- |
+| `MessagingTests`                   | 5     | Send (connected only), inbox, message detail marks-as-read, conversation. |
+| `MessagePermissionBoundaryTests`   | 6     | Boundary: only sender/recipient can read a message; third parties get 404 on detail, see no messages in inbox, and cannot extract via the conversation endpoint. |
 
 ---
 
@@ -96,6 +103,14 @@ has a corresponding regression test, so the issue cannot silently return.
 | 2FA setup overwrites active TOTP secret                         | P1       | `backend/users/models.py` (new `pending_totp_secret`), `backend/users/views.py:TOTPSetupView`, `TOTPEnableView`, `TOTPDisableView`, migration `0003_user_pending_totp_secret.py` | `TOTPSetupSafetyTests` (2 tests, `backend/users/tests.py`)           |
 | Password validators not enforced                                | P2       | `backend/users/serializers.py`, `backend/users/views.py:PasswordResetConfirmView` | `PasswordValidatorTests` (5 tests, `backend/users/tests.py`)         |
 | Frontend API URL hardcoded                                      | P2       | `frontend/src/api/client.js`, `frontend/.env.example`  | Manual: `npx expo export` confirms the client still bundles.         |
+
+In addition to the review-driven regressions above, the suite locks in
+two implicit security boundaries that were untested at review time:
+
+| Boundary                                                          | Severity | Where enforced                                          | Test(s)                                                           |
+| ----------------------------------------------------------------- | -------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
+| Activities are admin-write only (no organizer-self-edit loophole) | Boundary | `backend/activities/permissions.py:IsAdminOrReadOnly`   | `ActivityWritePermissionTests` (8 tests, `backend/activities/tests.py`) |
+| Messages are readable only by sender or recipient                 | Boundary | `backend/messaging/views.py:MessageDetailView.get_queryset`, `InboxView.get_queryset`, `ConversationView.get_queryset` | `MessagePermissionBoundaryTests` (6 tests, `backend/messaging/tests.py`) |
 
 ---
 
@@ -142,7 +157,7 @@ cd backend
 python manage.py test
 ```
 
-Expected: `Ran 38 tests in <Ns>` followed by `OK`.
+Expected: `Ran 52 tests in <Ns>` followed by `OK`.
 
 ### 4.5 Test suite with coverage gate
 
@@ -197,8 +212,9 @@ Coverage is measured with `coverage.py` configured by
 WSGI/ASGI bootstrap, and `manage.py` are excluded because they aren't
 meaningful application code.
 
-**Current baseline:** 49% line+branch coverage across 1,618 statements
-in 33 files (post-regression-suite, 2026-04-29).
+**Current baseline:** 50% line+branch coverage across 1,618 statements
+in 33 files (post-regression-suite + permission-boundary tests,
+2026-04-29).
 
 **Floor:** `fail_under = 45` — set just below the current baseline so
 the gate is enforced today. This is a **ratchet**, not a target: the
@@ -227,7 +243,7 @@ A run is considered green only if **all of**:
 
 - `manage.py check` passes (warnings allowed)
 - `manage.py makemigrations --check --dry-run` reports no changes
-- `manage.py test` passes (all 38 tests)
+- `manage.py test` passes (all 52 tests)
 - `coverage report` total ≥ floor (currently 45%)
 
 succeed.
@@ -264,16 +280,20 @@ These are deliberate scope decisions, not bugs.
 
 ## 8. Suggested Future Tests
 
-In priority order, taken from the review report:
+In priority order, taken from the review report. Items previously
+listed here that have since been covered are noted inline.
 
-1. Activity organizer can edit/cancel their own activity but not someone
-   else's.
+1. ~~Activity organizer can edit/cancel their own activity but not someone
+   else's.~~ — Covered in this round by `ActivityWritePermissionTests`.
+   The actual policy turned out to be stricter than "organizer-only":
+   activities are admin-write only, so the test asserts that even a
+   non-staff user listed as `organizer` cannot edit their own activity.
 2. `EnhancedProfileSearchView` ranking — assertions over expected ordering
    for known fixtures.
 3. Recommendations endpoint — cold-start (no profile signals) returns
    nearest-future events.
-4. Messaging permission boundary — sender / recipient only, not third
-   parties.
+4. ~~Messaging permission boundary — sender / recipient only, not third
+   parties.~~ — Covered in this round by `MessagePermissionBoundaryTests`.
 5. End-to-end test for the password-reset email flow against a
    `locmem` email backend (so we can assert the outbound email
    contents without sending real mail).
