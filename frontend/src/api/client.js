@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 // Falls back to localhost so a fresh checkout works without configuration.
 const DEFAULT_API_URL = 'http://localhost:8000/api';
 
-const getBaseURL = () => {
+export const getBaseURL = () => {
   const universal = process.env.EXPO_PUBLIC_API_URL;
   if (Platform.OS === 'web') {
     return process.env.EXPO_PUBLIC_API_URL_WEB || universal || DEFAULT_API_URL;
