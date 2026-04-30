@@ -8,12 +8,18 @@
 // jest.mock factories can't reference out-of-scope vars except those
 // prefixed with `mock`, so we expose a mutable holder.
 const mockPlatform = { OS: 'web' };
+// Default: no Metro bundle URL (simulates production / web). Tests that
+// care about LAN auto-detect set this explicitly.
+const mockNativeModules = { SourceCode: { scriptURL: null } };
 
 jest.mock(
   'react-native',
   () => ({
     get Platform() {
       return mockPlatform;
+    },
+    get NativeModules() {
+      return mockNativeModules;
     },
   }),
   { virtual: true }
@@ -50,11 +56,12 @@ describe('getBaseURL', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    // Wipe the env vars under test so each case starts from a clean slate.
+    // Wipe the env vars and bundle URL so each case starts clean.
     delete process.env.EXPO_PUBLIC_API_URL;
     delete process.env.EXPO_PUBLIC_API_URL_WEB;
     delete process.env.EXPO_PUBLIC_API_URL_ANDROID;
     delete process.env.EXPO_PUBLIC_API_URL_IOS;
+    mockNativeModules.SourceCode.scriptURL = null;
     ({ getBaseURL } = require('../src/api/client'));
   });
 
@@ -62,7 +69,7 @@ describe('getBaseURL', () => {
     process.env = originalEnv;
   });
 
-  test('Android falls back to 10.0.2.2 (not localhost) so the emulator can reach the host', () => {
+  test('Android with no bundle URL falls back to 10.0.2.2 (emulator alias for host)', () => {
     mockPlatform.OS = 'android';
     expect(getBaseURL()).toBe('http://10.0.2.2:8000/api');
   });
@@ -72,9 +79,23 @@ describe('getBaseURL', () => {
     expect(getBaseURL()).toBe('http://localhost:8000/api');
   });
 
-  test('iOS defaults to localhost', () => {
+  test('iOS with no bundle URL defaults to localhost', () => {
     mockPlatform.OS = 'ios';
     expect(getBaseURL()).toBe('http://localhost:8000/api');
+  });
+
+  test('iOS auto-derives backend host from Metro bundle URL (LAN testing)', () => {
+    mockPlatform.OS = 'ios';
+    mockNativeModules.SourceCode.scriptURL =
+      'http://172.20.10.10:8081/index.bundle?platform=ios&dev=true';
+    expect(getBaseURL()).toBe('http://172.20.10.10:8000/api');
+  });
+
+  test('Android auto-derives backend host from Metro bundle URL', () => {
+    mockPlatform.OS = 'android';
+    mockNativeModules.SourceCode.scriptURL =
+      'http://192.168.1.42:8081/index.bundle?platform=android';
+    expect(getBaseURL()).toBe('http://192.168.1.42:8000/api');
   });
 
   test('Platform-specific env var beats the universal one', () => {
