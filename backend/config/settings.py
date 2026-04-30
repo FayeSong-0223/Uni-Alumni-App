@@ -229,7 +229,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # Demo-only fallback. Override with environment variables in any real env.
 _DEMO_EMAIL_HOST_USER = 'auth.au.alumni@gmail.com'
-_DEMO_EMAIL_HOST_PASSWORD = 'ejym unwx zofm wtal'
+_DEMO_EMAIL_HOST_PASSWORD = 'maaz vqhd tamh cxmr'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
