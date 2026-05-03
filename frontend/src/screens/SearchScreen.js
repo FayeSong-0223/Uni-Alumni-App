@@ -290,7 +290,11 @@ export default function SearchScreen({ navigation }) {
 
                   {/* Grouped autocomplete suggestions */}
                   {showSuggestions && hasAnySuggestions && (
-                    <View style={styles.suggestionsDropdownDesktop}>
+                    <ScrollView
+                      style={styles.suggestionsDropdownDesktop}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                    >
                       <SuggestionGroup
                         title="Professional Interests"
                         items={suggestionsGrouped.professional_interests}
@@ -306,7 +310,7 @@ export default function SearchScreen({ navigation }) {
                         items={suggestionsGrouped.other}
                         onPress={handleSuggestionPress}
                       />
-                    </View>
+                    </ScrollView>
                   )}
                 </View>
 
@@ -469,7 +473,11 @@ export default function SearchScreen({ navigation }) {
         {/* Mobile autocomplete — grouped by source (professional interests,
             companies, other free-text matches). */}
         {showSuggestions && hasAnySuggestions && (
-          <View style={styles.suggestionsDropdownMobile}>
+          <ScrollView
+            style={styles.suggestionsDropdownMobile}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
             <SuggestionGroup
               title="Professional Interests"
               items={suggestionsGrouped.professional_interests}
@@ -485,7 +493,7 @@ export default function SearchScreen({ navigation }) {
               items={suggestionsGrouped.other}
               onPress={handleSuggestionPress}
             />
-          </View>
+          </ScrollView>
         )}
       </FadeIn>
 
@@ -599,7 +607,13 @@ export default function SearchScreen({ navigation }) {
         data={results}
         keyExtractor={item => item.alumni_id}
         renderItem={renderItem}
-        ListHeaderComponent={renderMobileHeader}
+        // Pass the rendered element (call the function) rather than the function
+        // reference. If we passed `renderMobileHeader` itself, FlatList would treat
+        // it as a Component type, and because the function is re-created on every
+        // SearchScreen render it would look like a *new* component each time — so
+        // FlatList would unmount and remount the whole header on every keystroke,
+        // making the search and Expertise TextInputs lose focus after one character.
+        ListHeaderComponent={renderMobileHeader()}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
