@@ -216,14 +216,25 @@ def _apply_hybrid_ranking(qs, query):
     """
     query_vec = embed_text(query)
     if query_vec is None:
-        # Defensive: empty / whitespace query shouldn't reach here, but
-        # fall back to pure keyword sort if it does.
+        # Defensive: empty / whitespace query OR a model-load failure
+        # (semantic.py logs and returns None so the search degrades to
+        # keyword-only instead of 500-ing). Fall back to pure keyword
+        # sort either way.
         return list(
             qs.filter(relevance__gte=RELEVANCE_THRESHOLD)
               .order_by("-relevance", "start_time")
         )
 
-    candidates = list(qs[:SEMANTIC_CANDIDATE_LIMIT])
+    # IMPORTANT: order by `-relevance` BEFORE slicing. Without an explicit
+    # order_by, Django falls back to the ViewSet's default Meta.ordering
+    # (start_time ASC), which means the semantic re-ranker only ever sees
+    # the chronologically-earliest N activities — a strong keyword match
+    # far in the future would be cut before it's ever scored. Sorting by
+    # keyword relevance first guarantees we hand the re-ranker the most
+    # plausible candidates regardless of when they happen.
+    candidates = list(
+        qs.order_by("-relevance", "start_time")[:SEMANTIC_CANDIDATE_LIMIT]
+    )
     ranked = []
     for act in candidates:
         keyword_score = getattr(act, "relevance", 0) or 0

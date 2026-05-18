@@ -21,6 +21,12 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # DB_ENGINE is also exported by entrypoint.sh for the runserver
+      # process, but setting it here too means `docker compose exec`
+      # one-off commands (manage.py shell, backfill, eval, etc.) also
+      # see it. Without this, exec sessions fall back to the SQLite
+      # branch in settings.py and silently query the wrong database.
+      - DB_ENGINE=mysql
       - DB_NAME=${DB_NAME:-alumni_network}
       - DB_USER=${DB_USER:-root}
       - DB_PASSWORD=${DB_PASSWORD:-alumni_pass}

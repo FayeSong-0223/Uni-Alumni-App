@@ -2,7 +2,8 @@
 One-off command to populate Activity.embedding for rows that don't have one.
 
 Run after deploying the semantic-search feature, or any time you suspect
-embeddings have drifted (e.g. you changed the embedding model):
+embeddings have drifted (e.g. you changed the embedding model or the
+title/description blend weight):
 
     python manage.py backfill_embeddings           # only missing rows
     python manage.py backfill_embeddings --all     # recompute everything
@@ -10,7 +11,7 @@ embeddings have drifted (e.g. you changed the embedding model):
 from django.core.management.base import BaseCommand
 
 from activities.models import Activity
-from activities.semantic import build_activity_text, get_model
+from activities.semantic import embed_activity_texts
 
 
 class Command(BaseCommand):
@@ -40,7 +41,6 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f"Embedding {total} activit{'y' if total == 1 else 'ies'}…")
-        model = get_model()
         batch_size = options["batch_size"]
         done = 0
 
@@ -50,10 +50,16 @@ class Command(BaseCommand):
             batch = list(qs.order_by("pk")[start:start + batch_size])
             if not batch:
                 break
-            texts = [build_activity_text(a) for a in batch]
-            vectors = model.encode(texts, normalize_embeddings=True)
+            pairs = [(a.title, a.description) for a in batch]
+            # embed_activity_texts encodes title and description in two
+            # batched model calls, then blends them per-row using the
+            # default title_weight. Activities with no text get None and
+            # are skipped on write.
+            vectors = embed_activity_texts(pairs)
             for activity, vec in zip(batch, vectors):
-                Activity.objects.filter(pk=activity.pk).update(embedding=vec.tolist())
+                if vec is None:
+                    continue
+                Activity.objects.filter(pk=activity.pk).update(embedding=vec)
             done += len(batch)
             self.stdout.write(f"  {done}/{total}")
 

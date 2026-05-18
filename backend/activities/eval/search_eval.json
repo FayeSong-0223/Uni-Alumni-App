@@ -1,0 +1,42 @@
+[
+  {
+    "query": "mountain",
+    "expect_any_tokens": ["hike", "hiking", "trek", "trail", "outdoor", "climb", "summit", "walk"],
+    "rationale": "Semantic search should surface outdoor/hiking activities even though 'mountain' isn't in title/description."
+  },
+  {
+    "query": "coding",
+    "expect_any_tokens": ["code", "program", "programming", "developer", "dev", "software", "hack", "workshop", "python", "javascript"],
+    "rationale": "Conceptual match: 'coding' -> dev workshops / programming meetups."
+  },
+  {
+    "query": "networking",
+    "expect_any_tokens": ["network", "meet", "mixer", "alumni", "social", "drinks", "industry", "professional"],
+    "rationale": "Industry term -> social/mixer events."
+  },
+  {
+    "query": "wellness",
+    "expect_any_tokens": ["yoga", "meditation", "mindful", "fitness", "health", "wellbeing", "run", "running"],
+    "rationale": "Health-and-fitness umbrella term."
+  },
+  {
+    "query": "AI",
+    "expect_any_tokens": ["ai", "ml", "machine", "learning", "data", "model", "llm", "intelligence"],
+    "rationale": "Acronym should still hit AI/ML content."
+  },
+  {
+    "query": "music",
+    "expect_any_tokens": ["music", "concert", "gig", "band", "jazz", "dj", "song", "festival"],
+    "rationale": "Literal keyword + semantic neighbours (concert, gig)."
+  },
+  {
+    "query": "food",
+    "expect_any_tokens": ["food", "dinner", "lunch", "cook", "tasting", "restaurant", "wine", "brunch"],
+    "rationale": "Food/dining cluster."
+  },
+  {
+    "query": "career",
+    "expect_any_tokens": ["career", "job", "interview", "resume", "recruit", "mentor", "industry", "talk"],
+    "rationale": "Career-development cluster."
+  }
+]

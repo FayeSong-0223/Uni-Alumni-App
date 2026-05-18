@@ -1,7 +1,13 @@
 #!/bin/bash
 set -e
 
-export DB_ENGINE=mysql
+# DB_ENGINE is provided by docker-compose.yml so that BOTH this entrypoint
+# *and* `docker compose exec` one-off commands see the same value. We used
+# to `export DB_ENGINE=mysql` here, but exec sessions don't inherit
+# exports from the entrypoint shell, so manage.py shell / backfill /
+# eval would silently fall through to the SQLite branch in settings.py
+# and query the wrong database. Defined once in compose now — don't
+# re-export it here.
 
 echo "Waiting for MySQL..."
 while ! python -c "
