@@ -43,11 +43,25 @@ from profiles.models import Profile
 
 from .models import Activity, ActivityBooking
 from .permissions import IsAdminOrReadOnly
+from .semantic import cosine_similarity, embed_text
 from .serializers import ActivityBookingSerializer, ActivitySerializer
 
 RELEVANCE_THRESHOLD = 5
 AUTOCOMPLETE_MIN_CHARS = 1
 AUTOCOMPLETE_LIMIT = 10
+
+# Hybrid semantic-ranking knobs. Combined score = keyword_relevance +
+# semantic_score, where semantic_score = max(0, cos_sim - SEMANTIC_FLOOR)
+# * SEMANTIC_WEIGHT. The floor prunes near-zero cosines (unrelated text
+# typically lands at 0.05–0.15 with all-MiniLM-L6-v2) so they don't drag
+# noise into results; the weight sets how much a strong semantic match
+# (cos≈0.7) is worth relative to a description keyword hit (10 points).
+SEMANTIC_WEIGHT = 50
+SEMANTIC_FLOOR = 0.25
+# Hard cap on rows pulled into Python for semantic re-ranking, to keep
+# /search predictable as the corpus grows. Plenty of headroom for a
+# student project; revisit when activity counts exceed a few thousand.
+SEMANTIC_CANDIDATE_LIMIT = 500
 
 # Recommendation tuning constants.
 # Raw max = 30 + 40 + 25 + 25 = 120 → normalized to 0-100 on output.
@@ -183,6 +197,52 @@ def _score_activity_for_query(qs, query):
         desc_score=Case(When(desc_q, then=10), default=0, output_field=IntegerField()),
         relevance=F("title_score") + F("title_starts_score") + F("desc_score"),
     )
+
+
+def _apply_hybrid_ranking(qs, query):
+    """
+    Combine keyword relevance (already annotated on `qs`) with semantic
+    similarity from the per-row embedding, returning a sorted Python list
+    of Activity instances. Each instance gets three attributes attached:
+    `_keyword_score`, `_semantic_score`, `_combined_score` — handy for
+    debugging and exposed nowhere user-visible.
+
+    Why this lives in Python, not SQL: MySQL has no native cosine-distance
+    operator on JSON arrays, and the dataset is small enough that
+    brute-force numpy is well under 50 ms per query.
+
+    Rows without an embedding (e.g. just created, signal hadn't run yet)
+    score 0 on the semantic side and rely entirely on the keyword score.
+    """
+    query_vec = embed_text(query)
+    if query_vec is None:
+        # Defensive: empty / whitespace query shouldn't reach here, but
+        # fall back to pure keyword sort if it does.
+        return list(
+            qs.filter(relevance__gte=RELEVANCE_THRESHOLD)
+              .order_by("-relevance", "start_time")
+        )
+
+    candidates = list(qs[:SEMANTIC_CANDIDATE_LIMIT])
+    ranked = []
+    for act in candidates:
+        keyword_score = getattr(act, "relevance", 0) or 0
+        if act.embedding:
+            sim = cosine_similarity(query_vec, act.embedding)
+            semantic_score = max(0.0, sim - SEMANTIC_FLOOR) * SEMANTIC_WEIGHT
+        else:
+            semantic_score = 0.0
+        combined = keyword_score + semantic_score
+        if combined < RELEVANCE_THRESHOLD:
+            continue
+        act._keyword_score = keyword_score
+        act._semantic_score = round(semantic_score, 2)
+        act._combined_score = round(combined, 2)
+        ranked.append(act)
+
+    # Higher combined score first; nearest-upcoming as a stable tiebreak.
+    ranked.sort(key=lambda a: (-a._combined_score, a.start_time))
+    return ranked
 
 
 def _apply_tag_filter(qs, tags_list):
@@ -355,16 +415,15 @@ class ActivityViewSet(viewsets.ModelViewSet):
 
         if q:
             qs = _score_activity_for_query(qs, q)
-            qs = qs.filter(relevance__gte=RELEVANCE_THRESHOLD)
-            qs = qs.order_by("-relevance", "start_time")
+            results = _apply_hybrid_ranking(qs, q)
         else:
-            qs = qs.order_by("start_time")
+            results = list(qs.order_by("start_time"))
 
-        page = self.paginate_queryset(qs)
-        serializer = self.get_serializer(page if page is not None else qs, many=True)
+        page = self.paginate_queryset(results)
+        serializer = self.get_serializer(page if page is not None else results, many=True)
         if page is not None:
             return self.get_paginated_response(serializer.data)
-        return Response({"query": q, "total": qs.count(), "results": serializer.data})
+        return Response({"query": q, "total": len(results), "results": serializer.data})
 
     @action(detail=False, methods=["get"], url_path="autocomplete")
     def autocomplete(self, request):
@@ -649,14 +708,13 @@ class ActivityViewSet(viewsets.ModelViewSet):
 
         q = request.GET.get("q", "").strip()
         if q:
-            qs = _score_activity_for_query(qs, q).filter(
-                relevance__gte=RELEVANCE_THRESHOLD
-            ).order_by("-relevance", "start_time")
+            qs = _score_activity_for_query(qs, q)
+            results = _apply_hybrid_ranking(qs, q)
         else:
-            qs = qs.order_by("start_time")
+            results = list(qs.order_by("start_time"))
 
-        page = self.paginate_queryset(qs)
-        serializer = self.get_serializer(page if page is not None else qs, many=True)
+        page = self.paginate_queryset(results)
+        serializer = self.get_serializer(page if page is not None else results, many=True)
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)

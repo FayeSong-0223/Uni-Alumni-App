@@ -47,6 +47,10 @@ class Activity(models.Model):
     # Soft delete. expire_activities job flips this for past events.
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # Semantic-search vector for title+description. 384 floats from
+    # sentence-transformers all-MiniLM-L6-v2. Populated by a post_save
+    # signal; null until backfilled. See activities/semantic.py.
+    embedding = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
