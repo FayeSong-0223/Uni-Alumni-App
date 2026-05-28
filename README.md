@@ -64,144 +64,218 @@ A full-stack alumni networking + activities platform for Adelaide University. Al
 - Soft-delete via `is_deleted`; `manage.py expire_activities` flips past events
 - Admin-only image upload (`IsAdminOrReadOnly`, 10 MB cap)
 
-## Getting Started from Scratch
+## Setup — Zero to Running
 
-These steps walk a fresh clone from zero to a working local instance. Read the whole section before running anything — there are a few `.env` files you must create by hand.
+Follow these steps top to bottom. They assume **nothing is installed on your machine** and you've never seen the project before. The whole walkthrough takes ~15 minutes the first time (mostly waiting for Docker to download MySQL on first boot).
 
-### 0. Prerequisites
+### Step 1 — Install the three tools you need
 
-| Tool | Version | Why |
-|---|---|---|
-| Python | 3.11+ (3.14 confirmed in dev) | Backend runtime |
-| Node | 18+ LTS | Frontend / Expo |
-| Docker + docker-compose | latest | Easiest path for the full stack |
-| MySQL client libs | only if running backend outside Docker against MySQL | `mysqlclient` builds against `libmysqlclient` |
-| Git | any | obvious |
+You need exactly three programs on your machine. **Install them, then verify each one works before continuing.**
 
-If you run Docker on a machine that already uses **port 3306** for a local MySQL, you're fine — the compose file maps the container's 3306 to host `3307` to avoid colliding. The backend talks to it over the internal Docker network on `db:3306`, not via the host port.
+| # | Tool | Where to get it | Verify |
+|---|---|---|---|
+| 1 | **Git** | macOS: `xcode-select --install` · Windows: https://git-scm.com/download/win · Linux: `sudo apt install git` | `git --version` |
+| 2 | **Docker Desktop** | https://www.docker.com/products/docker-desktop/ — download, install, then **launch the app once** so the whale icon appears in your menu bar / system tray. | `docker --version` AND `docker compose version` |
+| 3 | **A plain-text editor** | VS Code, Sublime, even Notepad. Anything that edits `.env` files. | — |
 
-### 1. Clone & create your env files
+You do **not** need to install Python, Node, MySQL, or anything else on your host machine. Docker provides all of that inside containers.
 
-The repo ships `.env.example` files but **not** real `.env` files (they're gitignored). You must create them yourself:
+> **Important:** Docker Desktop must be running every time you work on the project. If `docker compose version` errors out, open the Docker Desktop app and wait until it says "Docker Desktop is running."
+
+### Step 2 — Get the code
 
 ```bash
-git clone <repo-url>
-cd onlyfayes
+git clone https://github.com/FayeSong-0223/Uni-Alumni-App.git
+cd Uni-Alumni-App
+```
 
-# Backend env
+After `cd`, run `ls` (Mac/Linux) or `dir` (Windows) — you should see folders named `backend`, `frontend`, and a file named `docker-compose.yml`. If you don't, you're in the wrong directory.
+
+### Step 3 — Create your `.env` files
+
+The repo ships **example** env files (`.env.example`) but not the real ones — real env files contain passwords, so we never commit them. You make them yourself by copying the examples:
+
+```bash
 cp backend/.env.example backend/.env
-
-# Frontend env
 cp frontend/.env.example frontend/.env
 ```
 
-#### What to edit in `backend/.env`
+**You can leave `frontend/.env` exactly as-is** — its defaults work for the web demo, and for native (phone/emulator) the app auto-detects the backend host from the Metro bundle URL.
 
-| Key | When to change | Notes |
-|---|---|---|
-| `DJANGO_SECRET_KEY` | **Always** — every clone, every deployment | Generate with `python -c "import secrets; print(secrets.token_urlsafe(64))"`. The fallback baked into `settings.py` is fine for local dev but should never reach a real server. |
-| `DJANGO_DEBUG` | Set to `False` for any non-dev environment | Defaults to `True`. |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated, set to your real hostnames for prod | Defaults to `*`. |
-| `DB_ENGINE=mysql` and the `DB_*` block | Uncomment **only** if you're pointing the backend at MySQL outside Docker. When using `docker-compose`, these are already set inside `docker-compose.yml` and you don't need them in `.env`. | Without `DB_ENGINE=mysql`, the backend falls back to SQLite at `backend/db.sqlite3` — perfect for first-time local exploration. |
-| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | Set to use **your** SMTP for password-reset emails | If left unset, the app falls back to the demo Gmail account hard-coded in `settings.py`. That account is shared and rate-limited; do not rely on it in any serious testing. For Gmail, this must be a [Google App Password](https://support.google.com/accounts/answer/185833), not your regular password. |
-| `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` / `_PASSWORD` | Optional. Only used by the Docker entrypoint to auto-create an admin on first boot | If any of the three is missing, no auto-superuser is created and you'll need to `createsuperuser` manually. |
+**You will edit `backend/.env` in the next step.**
 
-#### What to edit in `frontend/.env`
+### Step 4 — Edit `backend/.env`
 
-| Key | When to change |
-|---|---|
-| `EXPO_PUBLIC_API_URL` | **Web only** — set this to point web at the backend. Defaults to `http://localhost:8000/api`. On native (Expo Go / emulator) the client auto-detects the host from the Metro bundle URL, so this is **optional**; set it only when you want to force a specific host. |
-| `EXPO_PUBLIC_API_URL_ANDROID` | Optional override for Android. Without it, the client auto-detects from Metro; falls back to `10.0.2.2:8000` (the emulator's alias for host-localhost) if detection fails. |
-| `EXPO_PUBLIC_API_URL_IOS` | Optional override for iOS. Same auto-detection applies. |
-| (LAN / physical phone) | Usually nothing to do — Metro auto-detect handles it. If your backend is on a different host than the bundle server, set `EXPO_PUBLIC_API_URL=http://<host>:8000/api` and add the matching host to `DJANGO_ALLOWED_HOSTS` in `backend/.env`. |
+Open `backend/.env` in your text editor. You only need to touch **two sections**.
 
-#### Files you generally do NOT edit
+#### 4a. Set a Django secret key
 
-- `docker-compose.yml` — values are parameterised via env vars (`DB_PASSWORD`, `DB_NAME`, etc.). Override them by exporting in your shell or putting them in a top-level `.env` file (compose reads it automatically).
-- `backend/config/settings.py` — everything that varies between environments already reads from env vars. The one exception is the demo SMTP fallback, which you should override via `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` rather than editing in place.
-
-### 2. Run it (Docker — recommended)
-
-```bash
-docker-compose up --build
+Find this line:
+```
+DJANGO_SECRET_KEY=replace-me-with-a-long-random-string
 ```
 
-Wait for `Starting server...` from the backend container, then:
+Replace the right-hand side with any long random string. The fastest way:
 
-- **Frontend (Web):** http://localhost:8081
-- **Backend API:** http://localhost:8000/api/
-- **Django Admin:** http://localhost:8000/admin/  (login with the superuser you set via `DJANGO_SUPERUSER_*`, or create one — see step 3)
-- **MySQL (from host):** `localhost:3307` (user `root`, password `${DB_PASSWORD}` from your env, default `alumni_pass`)
+```bash
+# Mac/Linux — uses the Python that ships with macOS / most Linux distros:
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"
+# Windows (in PowerShell):
+[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
+```
 
-The compose entrypoint runs `makemigrations` → `migrate` → optional superuser creation → `runserver` on every boot. First boot is the slowest because Docker pulls images and builds.
+Copy the output into the file. For local dev only, you can skip this entirely — the app falls back to a built-in placeholder — but **never** ship that placeholder anywhere real.
 
-### 3. Run it (local, no Docker)
+#### 4b. Set an admin username and password (so you can log in to Django admin later)
+
+Find the three commented-out lines at the bottom of the file and **uncomment and fill them in**:
+
+```
+DJANGO_SUPERUSER_USERNAME=admin
+DJANGO_SUPERUSER_EMAIL=admin@example.com
+DJANGO_SUPERUSER_PASSWORD=PickAStrongPasswordHere
+```
+
+When you boot the stack in step 5, Docker will auto-create this admin user on first run. Without this, you'd have to drop into the container manually to create one — annoying for a first-time setup.
+
+**Save the file.** Don't touch anything else.
+
+### Step 5 — Boot everything
+
+From the project root (the folder with `docker-compose.yml`):
+
+```bash
+docker compose up --build
+```
+
+What happens now:
+
+1. Docker downloads the MySQL 8 image (~500 MB, first time only)
+2. Builds the backend container (Python + Django, ~3 min first time)
+3. Builds the frontend container (Node + Expo, ~2 min first time)
+4. Starts MySQL, waits for it to be healthy
+5. Runs database migrations
+6. Creates your admin user (from step 4b)
+7. Starts Django on :8000 and Expo on :8081
+
+**First boot takes 5–15 minutes** depending on your internet speed. Subsequent boots take ~20 seconds.
+
+You're done when the terminal shows roughly:
+
+```
+backend-1   | Superuser created
+backend-1   | Starting server...
+backend-1   | Watching for file changes with StatReloader
+frontend-1  | Web is waiting on http://localhost:8081
+```
+
+**Leave this terminal window open** — closing it stops the app. Open a new terminal tab for any further commands.
+
+### Step 6 — Open the app
+
+Open these URLs in your browser:
+
+| URL | What it is |
+|---|---|
+| http://localhost:8081 | The actual alumni-facing app (what real users see) |
+| http://localhost:8000/admin/ | Django admin (where admins create activities and manage data) |
+| http://localhost:8000/api/ | The backend REST API (useful for poking with curl/Postman) |
+
+Log in to **Django admin** with the username + password you set in step 4b.
+
+### Step 7 — Seed minimum data so the app isn't empty
+
+A clean database has no users, no activities, and no dropdown options — the alumni-facing app will look broken until you add some. Do this **once**, in the Django admin you just logged into:
+
+1. **Add one Professional Interest Option**
+   - Navigate: *Profiles → Professional interest options → Add professional interest option*
+   - Fill in: `slug = ai`, `label = Artificial Intelligence`, `sort order = 0`, `is active = ✓`
+   - Save. Without at least one of these, the dropdown alumni see when editing their profile will be empty.
+2. **Create one or two Activities**
+   - Navigate: *Activities → Activities → Add activity*
+   - Required: title, description, future start/end times, organizer (pick your admin user)
+   - Optional: location, category, tags, hero image, max participants
+   - Save.
+3. **Register a regular alumni account**
+   - Go to http://localhost:8081, click "Register"
+   - Fill in email + password + name. You'll be auto-assigned an alumni ID like `AL-002`.
+   - Edit your profile, then browse to the activities tab and book one. The full flow should work end-to-end.
+
+### Step 8 — Stop and restart
+
+| Goal | Command |
+|---|---|
+| Stop the app (preserves the database) | Press `Ctrl+C` in the terminal running `docker compose up`, then `docker compose down` |
+| Stop **and wipe the database** (clean slate) | `docker compose down -v` — destroys MySQL data volume; next `up` re-runs migrations and re-creates your admin |
+| Start it again (uses cached images, fast) | `docker compose up` |
+| Run a Django command (e.g. shell, manage.py) | `docker compose exec backend python manage.py <command>` |
+
+### Step 9 — (Optional) Semantic search
+
+If you want the activity search to use AI embeddings on top of the keyword scorer (so e.g. "machine learning meetup" matches an activity titled "AI workshop"), run this once after creating some activities:
+
+```bash
+docker compose exec backend python manage.py backfill_embeddings
+```
+
+First run downloads a ~100 MB `sentence-transformers` model into the container. Skip this step if you don't care — keyword search still works without it.
+
+---
+
+### Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| `docker: command not found` | Docker Desktop isn't installed or isn't running. Install it, then launch the app and wait for "Docker Desktop is running." |
+| `docker compose: 'compose' is not a docker command` | You're on an old Docker version that uses the hyphenated form. Use `docker-compose up --build` instead of `docker compose up --build`. Every other command in this guide works the same way (replace `docker compose` with `docker-compose`). |
+| `port is already allocated` / `bind: address already in use` | Something on your machine is already using port 8000, 8081, or 3307. Quit that program, or edit `docker-compose.yml` and change the **left** side of the port mapping (e.g. `"8001:8000"` to expose the backend on 8001 instead). |
+| `Access denied for user 'root'` (backend keeps restarting) | The `DB_PASSWORD` in your `backend/.env` doesn't match the one in `docker-compose.yml`. Easiest fix: delete the `DB_PASSWORD` line from `backend/.env` so the default (`alumni_pass`) is used everywhere. Then `docker compose down -v && docker compose up`. |
+| App loads in browser but Login shows "Network Error" | The backend container hasn't finished starting. Wait until you see `Starting server...` in the compose logs. If it's been over a minute, check http://localhost:8000/api/ directly — if that's also failing, scroll up in the compose logs for the real error. |
+| You set `DJANGO_SUPERUSER_*` but can't log in to /admin | The auto-creation runs **only when the database is empty** (first boot). If you set the vars after first boot, either run `docker compose down -v && docker compose up` to wipe and start fresh, or create one manually: `docker compose exec backend python manage.py createsuperuser`. |
+| Password reset emails don't arrive | By default, password-reset emails go through a shared demo Gmail account (rate-limited). For real testing, set `EMAIL_HOST_USER` and `EMAIL_HOST_PASSWORD` in `backend/.env` to your own Gmail address + a [Google App Password](https://support.google.com/accounts/answer/185833) (not your normal Gmail password). |
+| Phone on the same Wi-Fi can't reach the app | Add your laptop's LAN IP to `DJANGO_ALLOWED_HOSTS` in `backend/.env` (e.g. `DJANGO_ALLOWED_HOSTS=localhost,192.168.1.42`), then `docker compose restart backend`. The frontend's Metro bundle URL auto-detect handles the API URL automatically — you do **not** need to set `EXPO_PUBLIC_API_URL`. |
+| `sentence-transformers` install fails / out of disk space | Optional dep — comment it out of `backend/requirements.txt` and rebuild. Activity search will fall back to keyword-only and still work. |
+
+---
+
+### Alternative: Local Development (no Docker)
+
+Only do this if Docker isn't an option for you. It requires installing Python 3.11+ and Node 18+ on your host machine.
 
 #### Backend
 
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate         # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Defaults to SQLite. To use MySQL, set DB_ENGINE=mysql + DB_* in backend/.env.
+# Defaults to SQLite — perfect for first-time local exploration.
+# To use MySQL instead, set DB_ENGINE=mysql + DB_* in backend/.env first.
 python manage.py migrate
 python manage.py createsuperuser   # creates your first admin
 python manage.py runserver
 ```
 
-#### Frontend
+#### Frontend (in a second terminal)
 
 ```bash
 cd frontend
 npm install
-npx expo start --web      # Web (http://localhost:8081)
+npx expo start --web      # Web at http://localhost:8081
 npx expo start --ios      # iOS simulator
 npx expo start --android  # Android emulator
 ```
 
-### 4. First-run data setup
-
-The app starts with **no users, no profiles, no activities**. To get something to look at:
-
-1. **Create an admin** (if you didn't set `DJANGO_SUPERUSER_*`):
-   ```bash
-   # Docker:
-   docker-compose exec backend python manage.py createsuperuser
-   # Local:
-   cd backend && python manage.py createsuperuser
-   ```
-2. **Log into Django admin** at `http://localhost:8000/admin/` and add at least one `ProfessionalInterestOption` row (this populates the dropdown alumni see when editing their profile).
-3. **Create activities** from the Django admin or by hitting `POST /api/activities/` with an admin JWT — alumni-side accounts can't create them.
-4. **Register a few alumni** via the app's normal Register screen so the discovery / connections flows have something to surface.
-
-### 5. Semantic search (optional)
-
-If you want activity search to use sentence embeddings on top of the ORM scorer, backfill embeddings for whatever activities you've created:
+#### Scheduled jobs (cron candidates)
 
 ```bash
-# Docker:
-docker-compose exec backend python manage.py backfill_embeddings
-# Local:
-python manage.py backfill_embeddings
-# Recompute everything (e.g. after changing the embedding model):
-python manage.py backfill_embeddings --all
-```
-
-First run downloads the `sentence-transformers` model (~100 MB) into the container's HuggingFace cache. If the dep is too heavy for your environment, the search endpoint still works without embeddings — it just skips the semantic blend.
-
-### 6. Scheduled jobs
-
-```bash
-# Soft-delete activities whose end_time has passed
+# Soft-delete activities whose end_time has passed (run every 15 min):
 python manage.py expire_activities
+
+# Evaluate activity-search ranking against saved fixtures (run when tuning scoring):
+python manage.py eval_search
 ```
-Run from cron (every 15 min is a reasonable default).
-
-### 7. Evaluate search quality (optional)
-
-`python manage.py eval_search` runs the saved relevance fixtures against the activity search ranker. Useful if you tune the scoring weights and want to confirm you haven't regressed.
 
 ## Things you MUST change before any real deployment
 
