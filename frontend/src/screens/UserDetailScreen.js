@@ -11,6 +11,7 @@ import { getProfileByAlumniId } from '../api/profiles';
 import { sendContactRequest } from '../api/connections';
 import { useToast } from '../components/Toast';
 import { colors, fonts, spacing, radius, useResponsive } from '../theme';
+import { PROFESSIONAL_INTERESTS } from '../data/options';
 import {
   FadeIn,
   GradientButton,
@@ -119,13 +120,34 @@ export default function UserDetailScreen({ route, navigation }) {
           </FadeIn>
         )}
 
-        {/* Interests */}
-        {profile.interests?.length > 0 && (
-          <FadeIn delay={350}>
+        {/* Hobbies — backend field is `hobbies`; older profiles used `interests`,
+            so we fall back to that for parity with ProfileScreen. */}
+        {(() => {
+          const hobbies = profile.hobbies ?? profile.interests ?? [];
+          if (hobbies.length === 0) return null;
+          return (
+            <FadeIn delay={300}>
+              <GlowCard style={styles.section}>
+                <Text style={styles.sectionTitle}>Hobbies</Text>
+                <View style={styles.tagRow}>
+                  {hobbies.map(i => <Tag key={i} label={i} variant="accent" />)}
+                </View>
+              </GlowCard>
+            </FadeIn>
+          );
+        })()}
+
+        {/* Professional Interests — stored as slugs, displayed via the
+            PROFESSIONAL_INTERESTS catalog so users see human labels. */}
+        {profile.professional_interests?.length > 0 && (
+          <FadeIn delay={400}>
             <GlowCard style={styles.section}>
-              <Text style={styles.sectionTitle}>Interests</Text>
+              <Text style={styles.sectionTitle}>Professional Interests</Text>
               <View style={styles.tagRow}>
-                {profile.interests.map(i => <Tag key={i} label={i} variant="accent" />)}
+                {profile.professional_interests.map((slug) => {
+                  const opt = PROFESSIONAL_INTERESTS.find(o => o.slug === slug);
+                  return <Tag key={slug} label={opt?.label || slug} variant="primary" />;
+                })}
               </View>
             </GlowCard>
           </FadeIn>

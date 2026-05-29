@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   Image,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, radius, fonts, spacing, getContentWidth } from '../theme';
@@ -181,18 +182,24 @@ export function Dropdown({ label, value, displayValue, options, onSelect, placeh
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setOpen(false)}>
-          <View style={styles.modalContent}>
+          {/* Inner Pressable absorbs taps inside the card so the FlatList/ScrollView
+              actually receives scroll events on web — without this, the outer
+              overlay swallows them and the list cannot scroll. */}
+          <Pressable style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>{label}</Text>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => String(item)}
+            <ScrollView
               style={styles.modalList}
-              renderItem={({ item }) => {
+              contentContainerStyle={styles.modalListContent}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+              {options.map((item) => {
                 // `value` might be a slug while option strings are human labels;
                 // match by displayValue (= label) when provided.
                 const isActive = displayValue ? displayValue === item : value === item;
                 return (
                   <TouchableOpacity
+                    key={String(item)}
                     style={[styles.modalItem, isActive && styles.modalItemActive]}
                     onPress={() => { onSelect(item); setOpen(false); }}
                   >
@@ -202,12 +209,12 @@ export function Dropdown({ label, value, displayValue, options, onSelect, placeh
                     {isActive && <Text style={styles.modalCheck}>✓</Text>}
                   </TouchableOpacity>
                 );
-              }}
-            />
+              })}
+            </ScrollView>
             <TouchableOpacity style={styles.modalClose} onPress={() => setOpen(false)}>
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
     </View>
@@ -620,8 +627,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     width: '100%',
     maxWidth: 400,
-    maxHeight: '70%',
+    maxHeight: '80%',
     padding: 8,
+    // Flex column so the title + Cancel button stay pinned and the list
+    // region in between can shrink and scroll instead of pushing them off-screen.
+    flexDirection: 'column',
+    flexShrink: 1,
+    overflow: 'hidden',
   },
   modalTitle: {
     fontSize: fonts.lg,
@@ -630,7 +642,11 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 8,
   },
-  modalList: { maxHeight: 350 },
+  // flexShrink lets the list collapse when there isn't enough vertical room,
+  // which is what triggers the inner scroll. Without it the list keeps its
+  // intrinsic height and overflows under the Cancel button.
+  modalList: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
+  modalListContent: { paddingBottom: 4 },
   modalItem: {
     paddingVertical: 14,
     paddingHorizontal: 16,
