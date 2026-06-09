@@ -5,6 +5,33 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+# ---------------------------------------------------------------------------
+# Load backend/.env (if present) into the environment.
+#
+# Real secrets (SMTP password, etc.) live in backend/.env, which is gitignored
+# and never committed. A tiny parser keeps this dependency-free. Variables
+# already set in the real environment (e.g. by docker-compose or the shell)
+# always win — the file only fills in what isn't already set.
+# ---------------------------------------------------------------------------
+
+def _load_dotenv(path):
+    try:
+        with open(path, encoding='utf-8') as fh:
+            lines = fh.readlines()
+    except FileNotFoundError:
+        return
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(BASE_DIR / '.env')
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get(
     'DJANGO_SECRET_KEY',
@@ -218,24 +245,28 @@ CORS_ALLOW_ALL_ORIGINS = True
 # ---------------------------------------------------------------------------
 # Email
 #
-# In any real deployment, set EMAIL_HOST_USER and EMAIL_HOST_PASSWORD via
-# environment variables (e.g. through a server-side secret manager). The
-# constants below are demonstration credentials kept here ONLY so the
-# password-reset flow works out-of-the-box during evaluation; this is an
-# acknowledged limitation documented in TESTING.md / the review report.
-# Treat the embedded credentials as compromised and rotate before any
-# real-world deployment.
+# Credentials are read exclusively from the environment — no SMTP username or
+# password is ever committed to source control. Set EMAIL_HOST_USER and
+# EMAIL_HOST_PASSWORD (via backend/.env or a server-side secret manager) to
+# send real mail over SMTP.
+#
+# When either is unset, Django's console backend is used instead: outgoing
+# mail (e.g. password-reset codes) is printed to the server stdout rather than
+# delivered. This keeps local development and evaluation working out of the
+# box without any real credentials. See backend/.env.example.
 # ---------------------------------------------------------------------------
 
-# Demo-only fallback. Override with environment variables in any real env.
-_DEMO_EMAIL_HOST_USER = 'auth.au.alumni@gmail.com'
-_DEMO_EMAIL_HOST_PASSWORD = 'maaz vqhd tamh cxmr'
-
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', _DEMO_EMAIL_HOST_USER)
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', _DEMO_EMAIL_HOST_PASSWORD)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@alumni.local'
+)
